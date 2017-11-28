@@ -488,7 +488,14 @@ class FloatingIpManager(network_base.FloatingIpManager):
         servers, has_more = nova.server_list(self.request, detailed=False)
         server_dict = collections.OrderedDict(
             [(s.id, s.name) for s in servers])
-        reachable_subnets = self._get_reachable_subnets(ports)
+
+        # get list of extensions and set has_contrail flag
+        try:
+            extension_dict = self.client.list_extensions()
+        except exceptions.ServiceCatalogException:
+            extension_dict = {}
+        extension_list = [e['alias'] for e in extension_dict.get('extensions', []) if 'alias' in e]
+        has_contrail = True if 'contrail' in extension_list else False
 
         targets = []
         for p in ports:
@@ -499,7 +506,8 @@ class FloatingIpManager(network_base.FloatingIpManager):
             server_name = server_dict.get(p.device_id)
 
             for ip in p.fixed_ips:
-                if ip['subnet_id'] not in reachable_subnets:
+                # only skip ports in environments without Contrail extension
+                if not has_contrail and ip['subnet_id'] not in self._get_reachable_subnets(ports):
                     continue
                 target = {'name': '%s: %s' % (server_name, ip['ip_address']),
                           'id': '%s_%s' % (port_id, ip['ip_address']),
